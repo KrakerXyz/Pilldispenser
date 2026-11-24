@@ -49,39 +49,11 @@ String processor(const String& var) {
     }
     buttons += "<label class=\"switch\"><input type=\"checkbox\"  name=\"dstEnabled\" id=\"dstEnabled\" " + outputStateValue + "><span class=\"slider\"></span></label>";
     return buttons;
-  } else if (var == "MUTEENA") {
-    String buttons = "";
-    String outputStateValue;
-    if (muteSound) {
-      outputStateValue = "checked";
-    } else {
-      outputStateValue = "";
-    }
-    buttons += "<label class=\"switch\"><input type=\"checkbox\"  name=\"mutebutton\" id=\"mutebutton\" " + outputStateValue + "><span class=\"slider\"></span></label>";
-    return buttons;
   } else if (var == "UTCOFFSETBOX") {
     String value = String(utcOffset + 12);
     String selectHTML = "<select name=\"utcoffset\" id=\"utcoffset\">";
     String choices[] = {"-12", "-11", "-10", "-9", "-8", "-7", "-6", "-5", "-4", "-3", "-2", "-1", "0", "+1", "+2", "+3", "+4", "+5", "+6", "+7", "+8", "+9", "+10", "+11", "+12"};
     for (int i = 0; i <= 24; i++) {
-      selectHTML += "<option value=\"" + String(i) + "\"" + (value == String(i) ? " selected" : "") + ">" + choices[i] + "</option>";
-    }
-    selectHTML += "</select>";
-    return selectHTML;
-  } else if (var == "SPKVOL") {
-    String value = String(spkvolume - 1);
-    String selectHTML = "<select name=\"spkvolume\" id=\"spkvolume\">";
-    String choices[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30"};
-    for (int i = 0; i <= 29; i++) {
-      selectHTML += "<option value=\"" + String(i) + "\"" + (value == String(i) ? " selected" : "") + ">" + choices[i] + "</option>";
-    }
-    selectHTML += "</select>";
-    return selectHTML;
-  } else if (var == "ALERTINTERVAL") {
-    String value = String(alertinterval - 1);
-    String selectHTML = "<select name=\"alertinterval\" id=\"alertinterval\">";
-    String choices[] = {"1 min", "2 mins", "3 mins", "4 mins", "5 mins", "6 mins", "7 mins", "8 mins", "9 mins", "10 mins", "15 mins", "20 mins", "25 mins", "30 mins"};
-    for (int i = 0; i <= 13; i++) {
       selectHTML += "<option value=\"" + String(i) + "\"" + (value == String(i) ? " selected" : "") + ">" + choices[i] + "</option>";
     }
     selectHTML += "</select>";
@@ -401,25 +373,6 @@ String processor(const String& var) {
     String value = String(trayNames[10]);
     texts += "<input maxlength=\"15\" name=\"trayNames10\" size=\"15\" type=\"text\" value=\"" + value + "\"/>";
     return texts;
-  }  else if (var == "BOTTOKENTXT") {
-    String texts = "";
-    String value = String(BOT_TOKEN);
-    texts += "<input maxlength=\"75\" name=\"bottoken\" size=\"40\" type=\"text\" value=\"" + value + "\"/>";
-    return texts;
-  }  else if (var == "CHATIDTXT") {
-    String texts = "";
-    String value = String(CHAT_ID);
-    texts += "<input maxlength=\"75\" name=\"chatID\" size=\"40\" type=\"text\" value=\"" + value + "\"/>";
-    return texts;
-  } else if (var == "ALERTAFTERBOX") {
-    String value = String(telegramalertinterval);
-    String selectHTML = "<select name=\"telegramalert\" id=\"telegramalert\">";
-    String choices[] = {"Disabled", "Instant", "5 min", "10 min", "15 min", "30 min", "45 min", "60 min"};
-    for (int i = 0; i <= 7; i++) {
-      selectHTML += "<option value=\"" + String(i) + "\"" + (value == String(i) ? " selected" : "") + ">" + choices[i] + "</option>";
-    }
-    selectHTML += "</select>";
-    return selectHTML;
   }  else if (var == "MDNSTXT") {
     String texts = "";
     String value = String(HOSTNAME);
@@ -455,143 +408,36 @@ void webroute() {
   });
 
   server.on("/dropout", HTTP_GET, [](AsyncWebServerRequest * request) {
-    if (!request->hasParam("tray")) {
-      request->send(400, "text/plain", "Param 'tray' is missing.");
-      return;
-    }
-
+    if (!request->hasParam("tray")) { request->send(400, "text/plain", "Param 'tray' is missing."); return; }
     int tray = request->getParam("tray")->value().toInt();
-
-    if (tray < 1 || tray > installedTrays) {
-      request->send(400, "text/plain", "Wrong value for tray.");
-      return;
-    }
-
-    dispense(tray);
-    request->send(200, "text/plain", "Done");
-
+    if (tray < 1 || tray > installedTrays) { request->send(400, "text/plain", "Wrong value for tray."); return; }
+    bool accepted = requestControl(CONTROL_DISPENSE, trayBit(tray), 0);
+    request->send(accepted ? 200 : 409, "text/plain", accepted ? "Done" : "Dispenser busy");
   });
 
   server.on("/dispense", HTTP_GET, [](AsyncWebServerRequest * request) {
-
-    if (!alertinprogress) { // Normal dispense (only one tray)
-      request->send(400, "text/plain", "No alarm in progress. Nothing to dispense.");
-      return;
-    } else { // Alert dispense (1 tray or more)
-      for (int i = 1; i <= 10; i++) {
-        if (i == 10) {
-          alertinprogress = false;
-          //lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-        }
-        if (traytriggered[i]) {
-          dispensebatchinprogress = true;
-          currentpixelcolor = index_to_pixel(trayColor[i]);
-          currentcolordispense = trayColor[i];
-          dispensebatch(currentcolordispense);
-          break;
-        }
-        lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-        lv_obj_add_state(ui_TraycfgBTN, LV_STATE_DISABLED); // Disable the button
-      }
-      request->send(200, "text/plain", "Done");
-    }
+    bool accepted = requestFirstDueGroup(false);
+    request->send(accepted ? 200 : 409, "text/plain", accepted ? "Done" : "No pending trays or dispenser busy");
   });
 
   server.on("/fix", HTTP_GET, [](AsyncWebServerRequest * request) {
-    if (!request->hasParam("tray")) {
-      request->send(400, "text/plain", "Param 'tray' is missing.");
-      return;
-    }
-
+    if (!request->hasParam("tray")) { request->send(400, "text/plain", "Param 'tray' is missing."); return; }
     int tray = request->getParam("tray")->value().toInt();
-
-    if (tray < 1 || tray > installedTrays) {
-      request->send(400, "text/plain", "Wrong value for tray.");
-      return;
-    }
-
-    fixaligment = true;
-    traytodispense = tray;
-    lv_timer_t* timer = lv_timer_create(dispense_step1_timer, 250, NULL);
-
-    request->send(200, "text/plain", "Done");
-
+    if (tray < 1 || tray > installedTrays) { request->send(400, "text/plain", "Wrong value for tray."); return; }
+    bool accepted = requestControl(CONTROL_ALIGN, trayBit(tray), 0);
+    request->send(accepted ? 200 : 409, "text/plain", accepted ? "Done" : "Dispenser busy");
   });
-
-  server.on("/alarm", HTTP_GET, [](AsyncWebServerRequest * request) {
-
-    int alarmId = 2;
-    if (request->hasParam("id")) {
-      alarmId = request->getParam("id")->value().toInt();
-    }
-
-    Playsound(alarmId); // Play the alarm sound
-    lv_timer_reset(alertsound_timer); // Reset alert sound timer
-
-    request->send(200, "text/plain", "Done");
-  });
-
 
   server.on("/dismiss", HTTP_GET, [](AsyncWebServerRequest * request) {
-    for (int i = 1; i <= 10; i++) {
-      if (i == 10) {
-        alertinprogress = false;
-        lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-      }
-      if (traytriggered[i]) {
-        dispensebatchinprogress = true;
-        dismissinprogress = true;
-        currentpixelcolor = index_to_pixel(trayColor[i]);
-        currentcolordispense = trayColor[i];
-        dispensebatch(currentcolordispense);
-        break;
-      }
-    }
-  });
-
-  server.on("/test", HTTP_GET, [](AsyncWebServerRequest * request) {
-
-    preferences.begin("appSettings", false); // Open Preferences with namespace "appSettings". False for read and write.
-    // Handle Telegram settings
-    if (request->hasParam("bottoken")) {
-      String valueout = request->getParam("bottoken")->value();
-      BOT_TOKEN = valueout;
-      preferences.putString("bot_token", BOT_TOKEN.c_str());
-    }
-    if (request->hasParam("chatID")) {
-      String valueout = request->getParam("chatID")->value();
-      CHAT_ID = valueout;
-      preferences.putString("chat_id", CHAT_ID.c_str());
-    }
-    if (request->hasParam("telegramalert")) {
-      String valueout = request->getParam("telegramalert")->value();
-      telegramalertinterval = valueout.toInt();
-      preferences.putInt("telinterv", telegramalertinterval);
-    }
-    preferences.end(); // Close the Preferences
-
-
-    if (request->hasParam("bottoken")) {
-      String valueout = request->getParam("bottoken")->value();
-      BOT_TOKEN = valueout;
-      preferences.putString("bot_token", BOT_TOKEN.c_str());
-    }
-    if (request->hasParam("chatID")) {
-      String valueout = request->getParam("chatID")->value();
-      CHAT_ID = valueout;
-      preferences.putString("chat_id", CHAT_ID.c_str());
-    }
-    if (BOT_TOKEN != "" && CHAT_ID != "") {
-      bot = new UniversalTelegramBot(BOT_TOKEN, secured_client);
-      String message = "This is a test, if you see this message your Bot Token and Chat ID are correct.";
-      bot->sendMessage(CHAT_ID, message, "");
-      delete bot;
-      bot = nullptr;
-    }
-    request->send(SPIFFS, "/index.html", String(), false, processor);
+    bool accepted = requestFirstDueGroup(true);
+    request->send(accepted ? 200 : 409, "text/plain", accepted ? "Done" : "No pending trays or dispenser busy");
   });
 
   server.on("/reset", HTTP_GET, [](AsyncWebServerRequest * request) {
+    if (!reserveRestart()) {
+      request->send(409, "text/plain", "Dispenser busy or restarting");
+      return;
+    }
 
     preferences.begin("wifi", false); // Open the Preferences with the "wifi" namespace in read/write mode
     preferences.clear(); // Clear all data within the "wifi" namespace
@@ -606,7 +452,7 @@ void webroute() {
     preferences.end(); // Close the Preferences
 
     request->send(SPIFFS, "/reset.html", String(), false, processor);
-    lv_timer_t* timer = lv_timer_create(reboot_timer, 2500, NULL);
+    scheduleRestart(1000);
   });
 
   server.on("/IP", HTTP_GET, [](AsyncWebServerRequest * request) {
@@ -622,12 +468,15 @@ void webroute() {
   });
 
   server.on("/save", HTTP_GET, [](AsyncWebServerRequest * request) {
+    if (!reserveRestart()) {
+      request->send(409, "text/plain", "Dispenser busy or restarting");
+      return;
+    }
 
     preferences.begin("appSettings", false); // Open Preferences with namespace "appSettings". False for read and write.
 
     dstEnabled = false;
     clockSS = false;
-    muteSound = false;
     enabledpasscode = false;
 
     if (request->hasParam("passcodetext")) {
@@ -653,23 +502,11 @@ void webroute() {
       utcOffset = valueout.toInt() - 12;
       preferences.putInt("utcOffset", utcOffset);
     }
-    if (request->hasParam("spkvolume")) {
-      String valueout = request->getParam("spkvolume")->value();
-      spkvolume = valueout.toInt() + 1;
-      preferences.putInt("spkvolume", spkvolume);
-    }
-    if (request->hasParam("alertinterval")) {
-      String valueout = request->getParam("alertinterval")->value();
-      alertinterval = valueout.toInt() + 1;
-      preferences.putInt("alertinterval", alertinterval);
-    }
     if (request->hasParam("dstEnabled")) dstEnabled = true;
     if (request->hasParam("clockSS")) clockSS = true;
-    if (request->hasParam("mutebutton")) muteSound = true;
 
     preferences.putBool("dstEnabled", dstEnabled);
     preferences.putBool("clockSS", clockSS);
-    preferences.putBool("muteSound", muteSound);
 
     // Handle time settings
     if (request->hasParam("resettime")) {
@@ -728,7 +565,7 @@ void webroute() {
 
 
     request->send(SPIFFS, "/saved.html", String(), false, processor);
-    lv_timer_t* timer = lv_timer_create(reboot_timer, 1000, NULL);
+    scheduleRestart(1000);
   });
 
   ////----------------------------------------------------------------Home Integration informations

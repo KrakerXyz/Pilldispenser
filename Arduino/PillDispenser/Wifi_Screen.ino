@@ -2,13 +2,13 @@
 // Start -------Connect to wifi from wifi config screen-------
 static void keyboard_wifi_event_handler(lv_event_t * e) { // Keyboard keys (Cancel/Accept)
   lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_READY) {
+  if (code == LV_EVENT_READY && !controlBusy) {
     lv_label_set_text(ui_WifiScanPANLBL, "Connecting to Wi-Fi...");
     lv_obj_clear_flag(ui_WifiScanPAN, LV_OBJ_FLAG_HIDDEN);
     lv_timer_t* timer = lv_timer_create(connect_wifi_event_cb, 500, NULL);
   }
   if (code ==  LV_EVENT_CANCEL ) {
-    lv_scr_load(ui_SettingSCR);
+    lv_scr_load(ui_ConfigSCR);
   }
 }
 static void connect_wifi_event_cb(lv_timer_t * timer) { //Timer for connecting wifi
@@ -16,6 +16,7 @@ static void connect_wifi_event_cb(lv_timer_t * timer) { //Timer for connecting w
   lv_timer_del(timer);
 }
 void connectToWifi() { //called by timer
+  if (!reserveRestart()) { lv_obj_add_flag(ui_WifiScanPAN, LV_OBJ_FLAG_HIDDEN); return; }
   uint16_t selectedIdx = lv_dropdown_get_selected(ui_SSIDDropDown);   // Retrieve SSID from the dropdown
   char ssid[32]; // Adjust the size based on your SSID length limits
   lv_dropdown_get_selected_str(ui_SSIDDropDown, ssid, sizeof(ssid));
@@ -35,6 +36,7 @@ void connectToWifi() { //called by timer
   if (WiFi.status() == WL_CONNECTED) {
     String message = "Connected successfully!\n\nIP Address: ";
     message += WiFi.localIP().toString(); // Append the IP address to the message
+    message += "\nRestarting...";
     lv_obj_add_flag(ui_NoWifiIconIMG, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_WifiIconIMG, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_ClockLBL, LV_OBJ_FLAG_HIDDEN);
@@ -43,7 +45,9 @@ void connectToWifi() { //called by timer
     lv_label_set_text(ui_WifiScanPANLBL, message.c_str());
     lv_label_set_text(ui_SkipWifiBTNLBL, "Next");
     saveWifiCredentials(ssid, password);
+    scheduleRestart(2000);
   } else {
+    cancelReservedRestart();
     lv_obj_clear_flag(ui_NoWifiIconIMG, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_WifiIconIMG, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_ClockLBL, LV_OBJ_FLAG_HIDDEN);
@@ -58,7 +62,7 @@ void connectToWifi() { //called by timer
 // Start -------Scan Wifi Routine and populate dropdown-------
 static void scan_wifi_event_handler(lv_event_t * e) { //Wifi screen - Scan button
   lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
+  if (code == LV_EVENT_CLICKED && !controlBusy) {
     lv_label_set_text(ui_WifiScanPANLBL, "Please wait...\n\nScanning wifi networks\nin progress");
     lv_obj_clear_flag(ui_WifiScanPAN, LV_OBJ_FLAG_HIDDEN);
     lv_timer_t* timer = lv_timer_create(scan_wifi_event_cb, 500, NULL);
@@ -75,6 +79,7 @@ void populateSSIDDropdown() {
   delay(100);
 
   int16_t networkCount = WiFi.scanNetworks();
+  lv_dropdown_clear_options(ui_SSIDDropDown);
 
   for (int i = 0; i < networkCount; ++i) {
     lv_dropdown_add_option(ui_SSIDDropDown, WiFi.SSID(i).c_str(), LV_DROPDOWN_POS_LAST);

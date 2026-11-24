@@ -24,6 +24,7 @@ extern "C" {
 
 #include "ui_helpers.h"
 #include "ui_events.h"
+#include "ui_flow.h"
 
 // SCREEN: ui_SplashSCR
 void ui_SplashSCR_screen_init(void);
@@ -225,7 +226,6 @@ LV_IMG_DECLARE(ui_img_green_check_png);    // assets/Green_Check.png
 LV_IMG_DECLARE(ui_img_arrowupdown_png);    // assets/ArrowUpDown.png
 LV_IMG_DECLARE(ui_img_topcap_png);    // assets/TopCap.png
 LV_IMG_DECLARE(ui_img_arrowupdown2_png);    // assets/ArrowUpDown2.png
-LV_IMG_DECLARE(ui_img_apd_takepills_png);    // assets/APD_Takepills.png
 
 
 

@@ -432,10 +432,10 @@ void ui_init(void)
     ui_WifiSCR_screen_init();
     ui_TrayConfigSCR_screen_init();
     ui_ClockSCR_screen_init();
-    ui_PickPillsSCR_screen_init();
     ui_BlankSCR_screen_init();
     ui_SettingSCR_screen_init();
     ui_LockSCR_screen_init();
+    ui_flow_init();
     ui____initial_actions0 = lv_obj_create(NULL);
     lv_disp_load_scr(ui_SplashSCR);
 }

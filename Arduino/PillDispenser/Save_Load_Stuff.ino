@@ -25,9 +25,6 @@ void saveSettings() {
   preferences.putInt("installedTrays", installedTrays);
 
   // Save checkbox values (bool)
-  muteSound = lv_obj_has_state(ui_MuteCHK, LV_STATE_CHECKED);
-  preferences.putBool("muteSound", muteSound);
-
   clockSS = lv_obj_has_state(ui_ScreensaverCHK1, LV_STATE_CHECKED);
   preferences.putBool("clockSS", clockSS);
 
@@ -38,13 +35,6 @@ void saveSettings() {
   utcOffset = lv_slider_get_value(ui_UTCSlider);
   preferences.putInt("utcOffset", utcOffset);
 
-  // Save volume slider value (int)
-  spkvolume = lv_slider_get_value(ui_VolSlider);
-  preferences.putInt("spkvolume", spkvolume);
-  
-  // Save alert intervals
-  preferences.putInt("alertinterval", alertinterval);
-
   // Save reset hour
   preferences.putInt("resethours", lv_dropdown_get_selected(ui_DayHourDROP));
   resetHours = lv_dropdown_get_selected(ui_DayHourDROP);
@@ -52,13 +42,6 @@ void saveSettings() {
   // Save reset minutes
   preferences.putInt("resetmins", lv_dropdown_get_selected(ui_DayMinutesDROP) * 5); // Assuming dropdown indices correspond to 5-min intervals
   resetMin = lv_dropdown_get_selected(ui_DayMinutesDROP) * 5;
-
-  // Save telegram timer interval
-  preferences.putInt("telinterv", telegramalertinterval);
-
-  // Save telegram infos
-  preferences.putString("bot_token", BOT_TOKEN);
-  preferences.putString("chat_id", CHAT_ID);
 
   // save passcode infos
   preferences.putString("passcode", passcode);
@@ -71,18 +54,17 @@ void loadSettings() {
   preferences.begin("appSettings", true); // Open Preferences with namespace "appSettings". True for read-only.
 
   // Load dropdown value (int)
-  installedTrays = preferences.getInt("installedTrays", 1); // Default to 1 if not set
+  installedTrays = constrain(preferences.getInt("installedTrays", 1), 1, 10); // Default to 1 if not set
   lv_dropdown_set_selected(ui_HowManyTrayDROP, installedTrays - 1); // Adjust index to start at 0
 
   // Load checkbox values (bool)
-  muteSound = preferences.getBool("muteSound", false); // Default to false if not set
-  lv_obj_add_state(ui_MuteCHK, muteSound ? LV_STATE_CHECKED : 0);
-
   clockSS = preferences.getBool("clockSS", false);
-  lv_obj_add_state(ui_ScreensaverCHK1, clockSS ? LV_STATE_CHECKED : 0);
+  lv_obj_clear_state(ui_ScreensaverCHK1, LV_STATE_CHECKED);
+  if (clockSS) lv_obj_add_state(ui_ScreensaverCHK1, LV_STATE_CHECKED);
 
   dstEnabled = preferences.getBool("dstEnabled", false);
-  lv_obj_add_state(ui_DSTCHK, dstEnabled ? LV_STATE_CHECKED : 0);
+  lv_obj_clear_state(ui_DSTCHK, LV_STATE_CHECKED);
+  if (dstEnabled) lv_obj_add_state(ui_DSTCHK, LV_STATE_CHECKED);
 
   // Load slider value (int)
   utcOffset = preferences.getInt("utcOffset", 0); // Default to 0 if not set
@@ -90,10 +72,6 @@ void loadSettings() {
   String message = "UTC Offset: ";
   message += utcOffset;
   lv_label_set_text(ui_UTCLBL, message.c_str());
-
-  // Load volume slider value (int)
-  spkvolume = preferences.getInt("spkvolume", 10); // Default to 1 if not set
-  lv_slider_set_value(ui_VolSlider, spkvolume, LV_ANIM_OFF);
 
   // Load reset hour
   int hourIndex = preferences.getInt("resethours", 0); // Provide default value
@@ -105,18 +83,8 @@ void loadSettings() {
   lv_dropdown_set_selected(ui_DayMinutesDROP, minIndex);
   resetMin = minIndex * 5;
 
-  // load telegram timer interval
-  telegramalertinterval = preferences.getInt("telinterv", 0);
-
-  // Save alert intervals
-  alertinterval = preferences.getInt("alertinterval", 0);
-
   // load default hostname
   HOSTNAME = preferences.getString("mdnshostname", "pilldisp");
-
-  // load telegram infos
-  BOT_TOKEN = preferences.getString("bot_token", "");
-  CHAT_ID = preferences.getString("chat_id", "");
 
   // load passcode infos
   passcode = preferences.getString("passcode", "");
@@ -196,7 +164,6 @@ void saveTraySettings(int trayIndex) {
   // Save color value (int)
   snprintf(key, sizeof(key), "trayColor%d", trayIndex);
   uint16_t selectedOption = lv_roller_get_selected(ui_ColorRoller);
-  installedTrays = lv_dropdown_get_selected(ui_HowManyTrayDROP) + 1; // Assuming dropdown index starts at 0
   preferences.putInt(key, selectedOption);
   trayColor[trayIndex] = selectedOption;
 

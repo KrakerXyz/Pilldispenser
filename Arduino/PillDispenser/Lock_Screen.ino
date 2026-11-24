@@ -1,34 +1,11 @@
-static void passkey_event_handler(lv_event_t * e) { // Keyboard keys (Cancel/Accept)
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_READY) {
-    String codefromscreen = lv_textarea_get_text(ui_PassTXT);
-    if (codefromscreen == passcode) {
-      lv_textarea_set_text(ui_PassTXT, "");
-      if (nextaction == 1) {
-        nextaction = 0;
-        Dispense_Action();
-        return;
-      }
-      if (nextaction == 2) {
-        nextaction = 0;
-        loadTraySettings(selectedtray);
-        lv_scr_load(ui_TrayConfigSCR);
-        return;
-      }
-      if (nextaction == 3) {
-        nextaction = 0;
-        lv_scr_load(ui_SettingSCR);
-        return;
-      }
-    } else {
-      lv_textarea_set_text(ui_PassTXT, "");
-      nextaction = 0;
-      lv_scr_load(ui_MainSCR);
-    }
-  }
-  if (code ==  LV_EVENT_CANCEL ) {
-    lv_textarea_set_text(ui_PassTXT, "");
-    nextaction = 0;
-    lv_scr_load(ui_MainSCR);
-  }
+static void passkey_event_handler(lv_event_t * e) {
+  const lv_event_code_t code = lv_event_get_code(e);
+  if (code != LV_EVENT_READY && code != LV_EVENT_CANCEL) return;
+  const bool accepted = code == LV_EVENT_READY && String(lv_textarea_get_text(ui_PassTXT)) == passcode;
+  lv_textarea_set_text(ui_PassTXT, "");
+  const int action = nextaction;
+  nextaction = 0;
+  if (accepted && action == 1) openDispenseConfirmation(selectedtray);
+  else if (accepted && action == 3) lv_scr_load(ui_ConfigSCR);
+  else { closeDispenseConfirmation(); lv_scr_load(ui_MainSCR); }
 }

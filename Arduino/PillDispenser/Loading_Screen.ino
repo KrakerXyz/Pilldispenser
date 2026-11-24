@@ -33,7 +33,6 @@ static void startup_step2_timer(lv_timer_t * timer) { //Startup Step 2 (Connecti
     lv_label_set_text(ui_LoadinginfoLBL, message.c_str());
     lv_timer_create(startup_step3_timer, 2000, NULL);
     lv_timer_del(timer);
-    secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
 
   } else {
     lv_bar_set_value(ui_LoadingBAR, 3, LV_ANIM_ON);
@@ -157,29 +156,12 @@ static void startup_step14_timer(lv_timer_t * timer) { //Startup Step 14 (Wait 5
 static void startup_step15_timer(lv_timer_t * timer) { //Startup Step 15 (Load Main Screen)
   detachServo(9);
   inactivity_timer = lv_timer_create(timeout_action, 120000, NULL); // Create 120 sec timer for screen inactivity
-  //alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000, NULL); // Create 60 sec timer for alarm sound repeat
-  switch (alertinterval) {
-    case 0: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 1, NULL); break;
-    case 1: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 2, NULL); break;
-    case 2: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 3, NULL); break;
-    case 3: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 4, NULL); break;
-    case 4: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 5, NULL); break;
-    case 5: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 6, NULL); break;
-    case 6: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 7, NULL); break;
-    case 7: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 8, NULL); break;
-    case 8: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 9, NULL); break;
-    case 9: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 10, NULL); break;
-    case 10: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 15, NULL); break;
-    case 11: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 20, NULL); break;
-    case 12: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 25, NULL); break;
-    case 13: alertsound_timer = lv_timer_create(DFPlayer_Alarm_Timer, 60000 * 30, NULL); break;
-  }
-
   lv_scr_load(ui_MainSCR);
 
   for (int i = 1; i <= 10; i++) {
     loadTraySettings(i);
   }
+  reconcileCurrentDay();
   pixels.setPixelColor(1, pixels.Color(0, 0, 0));
   pixels.setPixelColor(0, pixels.Color(0, 0, 0));
   pixels.show();
@@ -190,9 +172,6 @@ static void startup_step15_timer(lv_timer_t * timer) { //Startup Step 15 (Load M
     AsyncElegantOTA.begin(&server);
     server.begin();
     MDNS.addService("http", "tcp", 80);
-    if (BOT_TOKEN != "" && CHAT_ID != "") {
-      bot = new UniversalTelegramBot(BOT_TOKEN, secured_client);
-    }
   }
   lv_timer_create(check_trays_timer_cb, 15000, NULL); // 15000 ms = 15 sec
   lv_timer_create(flashing_timer, 250, NULL);
@@ -202,25 +181,17 @@ static void startup_step15_timer(lv_timer_t * timer) { //Startup Step 15 (Load M
 }
 
 static void timeout_action(lv_timer_t* timer) {
-  if (clockSS && internetstatus) {
-    lv_scr_load(ui_ClockSCR);
-  } else {
-    lv_scr_load(ui_BlankSCR);
-    digitalWrite(21, LOW);
-  }
-
-  for (int i = 1; i <= 10; i++) {
-    // Clear the checked state for all trays
-    trayCheckedState[i] = false;
-    lv_obj_clear_state(ui_TrayIMG[i], LV_STATE_CHECKED); // Clear visual indication
-  }
-  lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-  lv_obj_add_state(ui_TraycfgBTN, LV_STATE_DISABLED); // Disable the button
+  if (controlBusy) { lv_timer_reset(timer); return; }
+  closeDispenseConfirmation();
+  nextaction = 0;
+  lv_textarea_set_text(ui_PassTXT, "");
+  if (clockSS && internetstatus) lv_scr_load(ui_ClockSCR);
+  else { lv_scr_load(ui_BlankSCR); digitalWrite(21, LOW); }
   showLED(pixels.Color(0, 0, 0));
 }
 
 static void reset_timeout(lv_event_t* e) {
-  lv_timer_reset(inactivity_timer);
+  if (inactivity_timer) lv_timer_reset(inactivity_timer);
 }
 
 void setupTime() {

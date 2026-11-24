@@ -16,11 +16,8 @@
 #include <Adafruit_PWMServoDriver.h>
 #include "time.h"
 #include <Adafruit_NeoPixel.h>
-#include "DFRobotDFPlayerMini.h"
-#include <WiFiClientSecure.h>
-#include <UniversalTelegramBot.h>
-#include <ArduinoJson.h>
 #include "esp_task_wdt.h"
+#include "AppState.h"
 
 #define XPT2046_IRQ 36
 #define XPT2046_MOSI 32
@@ -32,16 +29,13 @@
 #define SERVO_NUM 0
 #define SDA_PIN 22
 #define SCL_PIN 27
-#define SAMPLE_RATE 16000 // Adjust based on your WAV file
-#define DAC_CHANNEL 26 // GPIO 26
 #define LED_PIN    16  // Use GPIO16
 #define NUM_LEDS   2  // Number of LEDs in your strip
 
 // declaration
-String versionnumber = "v.1.9";
+String versionnumber = "v.1.9-grid";
 String HOSTNAME;
 lv_timer_t* inactivity_timer = NULL;
-lv_timer_t* alertsound_timer = NULL;
 static const uint16_t screenWidth  = 320;
 static const uint16_t screenHeight = 240;
 static lv_disp_draw_buf_t draw_buf;
@@ -50,33 +44,23 @@ uint16_t touchScreenMinimumX = 300, touchScreenMaximumX = 3800, touchScreenMinim
 String ssidload, passwordload;
 bool systemloaded = false;
 String trayNames[11] = {"", "", "", "", "", "", "", "", "", "", ""};
-String BOT_TOKEN;
-String CHAT_ID;
 String passcode;
 bool enabledpasscode = false;
 int nextaction = 0;
-int telegramalertinterval;
-bool telegram_alertonce = false;
 bool trayAlertEna[11] = {false, false, false, false, false, false, false, false, false, false, false};
 bool traytriggered[11] = {false, false, false, false, false, false, false, false, false, false, false};
 bool trayEnabled[11] = {false, false, false, false, false, false, false, false, false, false, false};
 bool traydisptoday[11] = {false, false, false, false, false, false, false, false, false, false, false};
 bool traydismtoday[11] = {false, false, false, false, false, false, false, false, false, false, false};
 bool alreadyTriggered[11] = {false};
-bool trayCheckedState[11] = {false}; // Initialize all as unchecked
 bool trayfastflash[11];
 bool solidLED;
-bool fixaligment = false;
 int trayHours[11];
 int trayMin[11];
 int resetHours;
 int resetMin;
 int trayColor[11];
 bool alertinprogress = false;
-bool dismissinprogress;
-bool dispensebatchinprogress;
-bool displacementinprogress;
-int currentcolordispense;
 int flashing;
 uint32_t currentpixelcolor;
 lv_obj_t* ui_TrayIMG[11];
@@ -85,16 +69,12 @@ lv_obj_t* ui_TrayCheckIMG[11];
 
 bool internetstatus;
 bool clockSS;
-bool muteSound;
-bool currentlyplaying;
 int installedTrays;
 bool dstEnabled;
 int utcOffset;
-int traytodispense;
+int traytodispense = -1;
 int displacesteps;
 int selectedtray;
-int spkvolume;
-int alertinterval;
 
 const int buttonPin = 4;  // GPIO4
 const int debounceDelay = 50;  // 50 milliseconds for debounce
@@ -110,14 +90,10 @@ XPT2046_Touchscreen ts(XPT2046_CS, XPT2046_IRQ);
 TFT_eSPI tft = TFT_eSPI(screenWidth, screenHeight);
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
-DFRobotDFPlayerMini myDFPlayer;
-WiFiClientSecure secured_client;
-UniversalTelegramBot* bot = nullptr;
 
 
 void setup() {
   Serial.begin( 115200 );
-  Serial2.begin(9600, SERIAL_8N1, -1, 17);
   esp_task_wdt_init(15, true);
   pinMode(4, INPUT_PULLUP);
 
@@ -133,8 +109,6 @@ void setup() {
   pwm.begin();
   pwm.setPWMFreq(60);
 
-  myDFPlayer.begin(Serial2);
-  myDFPlayer.volume(1);  //Set volume value. From 0 to 30
 
   pixels.begin();
 
@@ -197,32 +171,16 @@ void setup() {
   ui_TrayCheckIMG[9] = ui_TrayCheckIMG9;
   ui_TrayCheckIMG[10] = ui_TrayCheckIMG10;
 
-  lv_obj_add_event_cb(ui_ScanWifiBTN, scan_wifi_event_handler, LV_EVENT_ALL, NULL);
+  lv_obj_add_event_cb(ui_ScanWifiBTN, scan_wifi_event_handler, LV_EVENT_CLICKED, NULL);
   lv_obj_add_event_cb(ui_Keyboard, keyboard_wifi_event_handler, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_PassKey, passkey_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_SettingBackBTN, SettingBackBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_SettingBTN, SettingBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_WifiClearBTN, WifiClearBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_DispenseBTN, DispenseBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_TrueDismissBTN, TrueDismissBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_DispenseAgainBTN, DispenseAgainBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_DoubleDispenseCancelBTN, DoubleDispenseCancelBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_LCDLBL, LCDLBL_event_handler, LV_EVENT_ALL, NULL);
-
-  lv_obj_add_event_cb(ui_UpIMGBTN, UpIMGBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_DownIMGBTN, DownIMGBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_TraycfgBTN, TraycfgBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_TrayCfgSaveBTN, TrayCfgSaveBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_TrayCfgClearBTN, TrayCfgClearBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_VolTestBTN, VolTestBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_DisplaceBTN, DisplaceBTN_event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_HalfDisplaceBTN, HalfDisplaceBTN_event_handler, LV_EVENT_ALL, NULL);
+  lv_obj_add_event_cb(ui_SettingBackBTN, SettingBackBTN_event_handler, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(ui_WifiClearBTN, WifiClearBTN_event_handler, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(ui_TrayCfgSaveBTN, TrayCfgSaveBTN_event_handler, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(ui_TrayCfgClearBTN, TrayCfgClearBTN_event_handler, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(ui_DisplaceBTN, DisplaceBTN_event_handler, LV_EVENT_CLICKED, NULL);
   lv_obj_add_event_cb(ui_ColorRoller, roller_event_handler, LV_EVENT_VALUE_CHANGED, NULL);
-  lv_obj_add_event_cb(ui_PickPillsSCR, pick_pills_screen_event_handler, LV_EVENT_CLICKED, NULL);
-
-  for (int i = 1; i <= 10; i++) {
-    lv_obj_add_event_cb(ui_TrayIMG[i], tray_check_event_handler, LV_EVENT_ALL, NULL);
-  }
+  bindFlowEvents();
 
   lv_obj_add_state(ui_Keyboard, LV_STATE_DISABLED);
   lv_obj_add_state(ui_PassTxtBox, LV_STATE_DISABLED);
@@ -241,6 +199,8 @@ void setup() {
 
 void loop()
 {
+  processRestart();
+  processControlCommand();
   int reading = digitalRead(buttonPin);
 
   if (reading != lastButtonState) {
@@ -254,22 +214,7 @@ void loop()
       if (buttonState == LOW) {
         Serial.println("Physical Dispense Button Pressed");
 
-        if (alertinprogress) { // Alert dispense (1 tray or more)
-          for (int i = 1; i <= 10; i++) {
-            if (i == 10) {
-              alertinprogress = false;
-            }
-            if (traytriggered[i]) {
-              dispensebatchinprogress = true;
-              currentpixelcolor = index_to_pixel(trayColor[i]);
-              currentcolordispense = trayColor[i];
-              dispensebatch(currentcolordispense);
-              break;
-            }
-            lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-            lv_obj_add_state(ui_TraycfgBTN, LV_STATE_DISABLED); // Disable the button
-          }
-        }
+        requestFirstDueGroup(false);
       }
     }
   }

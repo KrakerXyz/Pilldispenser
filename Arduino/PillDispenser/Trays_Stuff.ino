@@ -1,116 +1,67 @@
 void updateTrays() {
-  lv_color_t disabledColor = lv_color_hex(0x2D2D2D);
-
-  for (int i = 1; i <= 10; i++) {
-    lv_style_t style;
-    lv_style_init(&style);
-
-    if (i <= installedTrays) {      // Tray is enabled: Set recolor opacity to transparent and label to the tray name
-      lv_obj_set_style_img_recolor_opa(ui_TrayIMG[i], LV_OPA_TRANSP, 0); // Disable recoloring
-      lv_obj_set_style_img_recolor(ui_TrayIMG[i], index_to_color(trayColor[i]), 0);
-      lv_label_set_text(ui_TrayLBL[i], trayNames[i].c_str()); // Set label to the tray name
-      trayEnabled[i] = true;
-    } else {       // Tray is disabled: Apply disabled color and set opacity
-      lv_obj_set_style_img_recolor_opa(ui_TrayIMG[i], 150, 0); // Enable recoloring
-      lv_obj_set_style_img_recolor(ui_TrayIMG[i], disabledColor, 0); // Apply disabled color
-      lv_label_set_text(ui_TrayLBL[i], "Not Installed"); // Update label text
-      trayEnabled[i] = false;
-    }
-    lv_obj_add_flag(ui_TrayCheckIMG[i], LV_OBJ_FLAG_HIDDEN); // Hide all checkmarks
+  for (int i = 1; i <= 10; ++i) {
+    trayEnabled[i] = i <= installedTrays;
+    if (!trayEnabled[i]) traytriggered[i] = false;
   }
-  checkmark();
+  refreshTraySelectors();
+  placethings();
 }
 
-void checkmark() {
-  for (int i = 1; i <= 10; i++) {
-    if (trayEnabled[i] && trayAlertEna[i]) {
-      if (traydisptoday[i] || traydismtoday[i]) {
-        lv_obj_clear_flag(ui_TrayCheckIMG[i], LV_OBJ_FLAG_HIDDEN);
-        if (traydismtoday[i]) {
-          lv_img_set_src(ui_TrayCheckIMG[i], &ui_img_red_cross_png);
-        } else {
-          lv_img_set_src(ui_TrayCheckIMG[i], &ui_img_green_check_png);
-        }
-      } else {
-        lv_obj_add_flag(ui_TrayCheckIMG[i], LV_OBJ_FLAG_HIDDEN);
-      }
+lv_color_t trayTextColor(int color) {
+  return color == 2 || color == 3 ? lv_color_white() : lv_color_black();
+}
+
+void refreshTrayButtons() {
+  for (int i = 1; i <= 10; ++i) {
+    if (i > installedTrays) {
+      lv_obj_add_flag(ui_TrayIMG[i], LV_OBJ_FLAG_HIDDEN);
+      continue;
     }
+    lv_obj_clear_flag(ui_TrayIMG[i], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_bg_color(ui_TrayIMG[i], index_to_color(trayColor[i]), 0);
+    const bool dim = (traytriggered[i] && flashing < 2) || (trayfastflash[i] && flashing % 2 == 0);
+    lv_obj_set_style_bg_opa(ui_TrayIMG[i], dim ? LV_OPA_50 : LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(ui_TrayIMG[i], trayTextColor(trayColor[i]), 0);
+    const bool done = traydisptoday[i] && !trayfastflash[i];
+    lv_obj_set_style_border_width(ui_TrayIMG[i], done ? 4 : 1, 0);
+    lv_obj_set_style_border_color(ui_TrayIMG[i], lv_color_hex(done ? 0x24E36B : 0x637184), 0);
+    if (done || traydismtoday[i]) {
+      lv_label_set_text(ui_TrayCheckIMG[i], done ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
+      lv_obj_set_style_text_color(ui_TrayCheckIMG[i], lv_color_white(), 0);
+      lv_obj_set_style_bg_color(ui_TrayCheckIMG[i], lv_color_hex(done ? 0x08632B : 0x9F2435), 0);
+      lv_obj_set_style_bg_opa(ui_TrayCheckIMG[i], LV_OPA_COVER, 0);
+      lv_obj_clear_flag(ui_TrayCheckIMG[i], LV_OBJ_FLAG_HIDDEN);
+    } else lv_obj_add_flag(ui_TrayCheckIMG[i], LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void checkmark() { refreshTrayButtons(); }
+
+void refreshTraySelectors() {
+  for (int i = 1; i <= 10; ++i) {
+    lv_obj_t * buttons[] = {ui_TraySelectBTN[i], ui_TrayFixBTN[i]};
+    for (lv_obj_t * button : buttons) {
+      lv_obj_set_style_bg_color(button, index_to_color(trayColor[i]), 0);
+      lv_obj_set_style_text_color(button, trayTextColor(trayColor[i]), 0);
+    }
+    lv_obj_set_style_text_color(ui_TraySelectLBL[i], trayTextColor(trayColor[i]), 0);
+    lv_obj_set_style_text_color(ui_TrayFixLBL[i], trayTextColor(trayColor[i]), 0);
+    if (i > installedTrays) lv_obj_add_state(ui_TrayFixBTN[i], LV_STATE_DISABLED);
+    else lv_obj_clear_state(ui_TrayFixBTN[i], LV_STATE_DISABLED);
   }
 }
 
 static void tray_check_event_handler(lv_event_t * e) {
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    if (!alertinprogress) {
-      // Determine which tray was clicked
-      lv_obj_t* clicked_tray = lv_event_get_target(e);
-      int clickedIndex = -1;
-
-      for (int i = 1; i <= 10; i++) {
-        if (clicked_tray == ui_TrayIMG[i]) {
-          clickedIndex = i;
-          break;
-        }
-      }
-
-      if (clickedIndex != -1) {
-        // Toggle the checked state of the clicked tray
-        trayCheckedState[clickedIndex] = !trayCheckedState[clickedIndex];
-
-        // If we just unchecked the tray, ensure no tray appears selected
-        if (!trayCheckedState[clickedIndex]) {
-          for (int i = 1; i <= 10; i++) {
-            // Clear the checked state for all trays
-            trayCheckedState[i] = false;
-            lv_obj_clear_state(ui_TrayIMG[i], LV_STATE_CHECKED); // Clear visual indication
-          }
-        } else {
-          // A tray was selected, unselect all others
-          for (int i = 1; i <= 10; i++) {
-            if (i != clickedIndex) {
-              trayCheckedState[i] = false; // Uncheck all other trays
-              lv_obj_clear_state(ui_TrayIMG[i], LV_STATE_CHECKED); // Clear visual indication for others
-            }
-          }
-          // Visually indicate the selected tray
-          lv_obj_add_state(ui_TrayIMG[clickedIndex], LV_STATE_CHECKED);
-        }
-      }
-
-      // Check if any tray is now selected to update button states
-      bool any_checked = false;
-      bool any_installed_checked = false;
-      for (int i = 1; i <= 10; i++) {
-        if (trayCheckedState[i]) {
-          if (i <= installedTrays) any_installed_checked = true;
-          any_checked = true;
-          break;
-        }
-      }
-
-      if (any_checked) {
-        lv_obj_clear_state(ui_TraycfgBTN, LV_STATE_DISABLED); // Enable the button
-      } else {
-        lv_obj_add_state(ui_TraycfgBTN, LV_STATE_DISABLED); // Disable the button
-      }
-      if (any_installed_checked) {
-        lv_obj_clear_state(ui_DispenseBTN, LV_STATE_DISABLED); // Enable the button
-        lv_obj_add_flag(ui_TraynotinstalledLBL, LV_OBJ_FLAG_HIDDEN);
-      } else {
-        lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-        lv_obj_clear_flag(ui_TraynotinstalledLBL, LV_OBJ_FLAG_HIDDEN);
-      }
-
-    }
-  }
+  if (controlBusy) return;
+  const int tray = (int)(intptr_t)lv_event_get_user_data(e);
+  if (tray < 1 || tray > installedTrays) return;
+  selectedtray = tray;
+  if (enabledpasscode) { nextaction = 1; lv_scr_load(ui_LockSCR); }
+  else openDispenseConfirmation(tray);
 }
 
-
 static void roller_event_handler(lv_event_t * e) {
-  //lv_style_t style;
-  //lv_style_init(&style);
-  lv_obj_t * roller = lv_event_get_target(e);
-  uint16_t option = lv_roller_get_selected(roller);
+  const uint16_t option = lv_roller_get_selected(lv_event_get_target(e));
   lv_obj_set_style_bg_color(ui_ColorPanel, index_to_color(option), LV_PART_MAIN);
 }
 

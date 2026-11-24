@@ -1,238 +1,207 @@
-static void SettingBackBTN_event_handler(lv_event_t * e) { // Setting Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    saveSettings();
-    lv_timer_t* timer = lv_timer_create(reboot_timer, 1000, NULL);
+void closeDispenseConfirmation() {
+  lv_obj_add_flag(ui_DispenseConfirmPAN, LV_OBJ_FLAG_HIDDEN);
+  confirmationTray = 0;
+  confirmationGroup = 0;
+}
+
+String groupCaption(uint16_t mask) {
+  String name;
+  bool first = true;
+  for (int i = 1; i <= installedTrays; ++i) {
+    if (!(mask & trayBit(i))) continue;
+    if (first) { name = trayNames[i]; first = false; }
+    else if (trayNames[i] != name) return "group";
   }
+  name.trim();
+  return name.length() ? name : "group";
 }
 
-static void reboot_timer(lv_timer_t * timer) { //Reboot [after 1000ms]
-  ESP.restart();
-  lv_timer_del(timer);
-}
-
-static void WifiClearBTN_event_handler(lv_event_t * e) { // Setting Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    clearWifiPreferences();
-  }
-}
-
-static void VolTestBTN_event_handler(lv_event_t * e) { // Test Volume Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    spkvolume = lv_slider_get_value(ui_VolSlider);
-    Playsound(2);
-  }
-}
-
-static void DisplaceBTN_event_handler(lv_event_t * e) { // Displace Go Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    displacementinprogress = true;
-    displace(selectedtray, lv_dropdown_get_selected(ui_DisplaceTrayDROP) + 1);
-  }
-}
-
-static void HalfDisplaceBTN_event_handler(lv_event_t * e) { // Half Displace Go Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    fixaligment = true;
-    traytodispense = selectedtray;
-    lv_timer_t* timer = lv_timer_create(dispense_step1_timer, 250, NULL);
-  }
-}
-
-static void TrueDismissBTN_event_handler(lv_event_t * e) { // Dismiss Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    for (int i = 1; i <= 10; i++) {
-      if (i == 10) {
-        alertinprogress = false;
-        lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-      }
-      if (traytriggered[i]) {
-        dispensebatchinprogress = true;
-        dismissinprogress = true;
-        currentpixelcolor = index_to_pixel(trayColor[i]);
-        currentcolordispense = trayColor[i];
-        dispensebatch(currentcolordispense);
-        break;
-      }
+void openDispenseConfirmation(int tray) {
+  if (controlBusy || tray < 1 || tray > installedTrays) return;
+  confirmationTray = tray;
+  confirmationWasDispensed = traydisptoday[tray];
+  confirmationWasDue = traytriggered[tray];
+  confirmationGroup = traytriggered[tray] ? dueGroupMask(trayColor[tray]) : 0;
+  const bool multiple = confirmationGroup && (confirmationGroup & (confirmationGroup - 1));
+  const String name = groupCaption(confirmationGroup);
+  String heading = confirmationWasDispensed ? "Already dispensed today" : "Dispense tray " + String(tray) + "?";
+  String details;
+  if (confirmationWasDispensed) details = "Dispense tray " + String(tray) + " again?";
+  else if (confirmationGroup) {
+    details = name + " ready: ";
+    bool first = true;
+    for (int i = 1; i <= installedTrays; ++i) if (confirmationGroup & trayBit(i)) {
+      if (!first) details += ", ";
+      details += String(i);
+      first = false;
     }
-  }
+  } else details = trayNames[tray].length() ? trayNames[tray] : "Manual dispense";
+  lv_label_set_text(ui_ConfirmHeadingLBL, heading.c_str());
+  lv_label_set_text(ui_ConfirmDetailsLBL, details.c_str());
+  String single = confirmationWasDispensed ? "Dispense again" : (multiple ? "Dispense only " : "Dispense ") + String(tray);
+  lv_label_set_text(ui_ConfirmSingleLBL, single.c_str());
+  lv_label_set_text(ui_ConfirmGroupLBL, ("Dispense " + name).c_str());
+  lv_label_set_text(ui_ConfirmSkipLBL, ("Skip " + name).c_str());
+  if (multiple) lv_obj_clear_flag(ui_ConfirmGroupBTN, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(ui_ConfirmGroupBTN, LV_OBJ_FLAG_HIDDEN);
+  if (confirmationGroup) lv_obj_clear_flag(ui_ConfirmSkipBTN, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(ui_ConfirmSkipBTN, LV_OBJ_FLAG_HIDDEN);
+  ui_flow_confirm_layout(confirmationGroup != 0, multiple);
+  lv_obj_clear_flag(ui_DispenseConfirmPAN, LV_OBJ_FLAG_HIDDEN);
+  lv_scr_load(ui_MainSCR);
 }
 
-static void DispenseAgainBTN_event_handler(lv_event_t * e) { // Double Dispense Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    for (int i = 1; i <= 10; i++) {
-      if (trayCheckedState[i]) {
-        currentpixelcolor = index_to_pixel(trayColor[i]);
-        dispense(i);
-        trayCheckedState[i] = false;
-        lv_obj_clear_state(ui_TrayIMG[i], LV_STATE_CHECKED);
-      }
-    }
-    lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-    lv_obj_add_state(ui_TraycfgBTN, LV_STATE_DISABLED); // Disable the button
+static void confirm_event_handler(lv_event_t * e) {
+  if (controlBusy) return;
+  lv_obj_t * button = lv_event_get_target(e);
+  if (button == ui_ConfirmCancelBTN) { closeDispenseConfirmation(); return; }
+  const int tray = confirmationTray;
+  if (tray < 1 || tray > installedTrays) { closeDispenseConfirmation(); return; }
+  // A remote action/reset may have changed state since the dialog opened.
+  // Show the updated warning/options before accepting another action.
+  if (traydisptoday[tray] != confirmationWasDispensed || traytriggered[tray] != confirmationWasDue ||
+      (confirmationWasDue && dueGroupMask(trayColor[tray]) != confirmationGroup)) {
+    openDispenseConfirmation(tray);
+    return;
   }
+  int kind = CONTROL_DISPENSE;
+  uint16_t mask = trayBit(tray);
+  if (button == ui_ConfirmGroupBTN) { kind = CONTROL_GROUP; mask = confirmationGroup; }
+  if (button == ui_ConfirmSkipBTN) { kind = CONTROL_SKIP; mask = confirmationGroup; }
+  if (requestControl(kind, mask, 0)) closeDispenseConfirmation();
 }
 
-static void DoubleDispenseCancelBTN_event_handler(lv_event_t * e) { // Double Dispense Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    for (int i = 1; i <= 10; i++) {
-      if (trayCheckedState[i]) {
-        lv_obj_clear_state(ui_TrayIMG[i], LV_STATE_CHECKED);
-      }
-    }
+void setMotionOverlay(bool visible) {
+  if (!motionOverlay) {
+    motionOverlay = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(motionOverlay, 320, 240);
+    lv_obj_set_style_radius(motionOverlay, 0, 0);
+    lv_obj_set_style_bg_color(motionOverlay, lv_color_hex(0x101827), 0);
+    lv_obj_set_style_bg_opa(motionOverlay, LV_OPA_90, 0);
+    lv_obj_clear_flag(motionOverlay, LV_OBJ_FLAG_SCROLLABLE);
+    motionLabel = lv_label_create(motionOverlay);
+    lv_obj_set_width(motionLabel, 280);
+    lv_obj_set_style_text_align(motionLabel, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(motionLabel, lv_color_white(), 0);
+    lv_obj_center(motionLabel);
   }
-}
-void Dispense_Action() {
-  if (!alertinprogress) { // Normal dispense (only one tray)
-    for (int i = 1; i <= 10; i++) {
-      if (trayCheckedState[i]) {
-        if (traydisptoday[i]) {
-          lv_obj_clear_flag(ui_DoubletakePAN, LV_OBJ_FLAG_HIDDEN);
-          break;
-        } else {
-          currentpixelcolor = index_to_pixel(trayColor[i]);
-          dispense(i);
-          trayCheckedState[i] = false;
-          lv_obj_clear_state(ui_TrayIMG[i], LV_STATE_CHECKED);
-        }
-      }
-      lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-      lv_obj_add_state(ui_TraycfgBTN, LV_STATE_DISABLED); // Disable the button
-    }
-  } else { // Alert dispense (1 tray or more)
-    for (int i = 1; i <= 10; i++) {
-      if (i == 10) {
-        alertinprogress = false;
-        //lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-      }
-      if (traytriggered[i]) {
-        dispensebatchinprogress = true;
-        currentpixelcolor = index_to_pixel(trayColor[i]);
-        currentcolordispense = trayColor[i];
-        dispensebatch(currentcolordispense);
-        break;
-      }
-      lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-      lv_obj_add_state(ui_TraycfgBTN, LV_STATE_DISABLED); // Disable the button
-    }
-  }
+  if (visible) {
+    const char * action = activeControlKind == CONTROL_ALIGN ? "Aligning" : activeControlKind == CONTROL_ADVANCE ? "Adjusting" : "Dispensing";
+    lv_label_set_text_fmt(motionLabel, "%s tray %d...\nPlease wait", action, traytodispense);
+    lv_obj_clear_flag(motionOverlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(motionOverlay);
+  } else lv_obj_add_flag(motionOverlay, LV_OBJ_FLAG_HIDDEN);
 }
 
-static void DispenseBTN_event_handler(lv_event_t * e) { // Dispense Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    if (!enabledpasscode) {
-      Dispense_Action();
-    } else {
-      nextaction = 1;
-      lv_scr_load(ui_LockSCR);
-    }
-  }
+static void home_config_event_handler(lv_event_t * e) {
+  if (controlBusy) return;
+  closeDispenseConfirmation();
+  if (enabledpasscode) { nextaction = 3; lv_scr_load(ui_LockSCR); }
+  else lv_scr_load(ui_ConfigSCR);
 }
 
-static void UpIMGBTN_event_handler(lv_event_t * e) { // Up Arrow Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    if (!alertinprogress) {
-      for (int i = 1; i <= 10; i++) {
-        // Clear the checked state for all trays
-        trayCheckedState[i] = false;
-        lv_obj_clear_state(ui_TrayIMG[i], LV_STATE_CHECKED); // Clear visual indication
-      }
-      lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-      lv_obj_add_state(ui_TraycfgBTN, LV_STATE_DISABLED); // Disable the button
-    }
-  }
+static void config_event_handler(lv_event_t * e) {
+  if (controlBusy) return;
+  lv_obj_t * button = lv_event_get_target(e);
+  if (button == ui_ConfigBackBTN) lv_scr_load(ui_MainSCR);
+  else if (button == ui_ConfigWifiBTN) lv_scr_load(ui_WifiSCR);
+  else if (button == ui_ConfigTrayBTN) { refreshTraySelectors(); lv_scr_load(ui_TraySelectSCR); }
+  else if (button == ui_ConfigFixBTN) { refreshTraySelectors(); lv_scr_load(ui_TrayFixSCR); }
+  else if (button == ui_ConfigSystemBTN) { loadSettings(); lv_scr_load(ui_SettingSCR); }
+  else if (button == ui_ConfigDisplayBTN) { loadSettings(); lv_scr_load(ui_DisplaySCR); }
 }
 
-static void SettingBTN_event_handler(lv_event_t * e) { // Setting Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    if (!enabledpasscode) {
-      lv_scr_load(ui_SettingSCR);
-    } else {
-      nextaction = 3;
-      lv_scr_load(ui_LockSCR);
-    }
-  }
+static void back_config_event_handler(lv_event_t * e) {
+  if (!controlBusy) lv_scr_load(ui_ConfigSCR);
 }
 
-static void DownIMGBTN_event_handler(lv_event_t * e) { // Down Arrow Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    if (!alertinprogress) {
-      for (int i = 1; i <= 10; i++) {
-        // Clear the checked state for all trays
-        trayCheckedState[i] = false;
-        lv_obj_clear_state(ui_TrayIMG[i], LV_STATE_CHECKED); // Clear visual indication
-      }
-      lv_obj_add_state(ui_DispenseBTN, LV_STATE_DISABLED); // Disable the button
-      lv_obj_add_state(ui_TraycfgBTN, LV_STATE_DISABLED); // Disable the button
-    }
+static void tray_select_event_handler(lv_event_t * e) {
+  if (controlBusy) return;
+  const int tray = (int)(intptr_t)lv_event_get_user_data(e);
+  selectedtray = tray;
+  loadTraySettings(tray);
+  lv_label_set_text_fmt(ui_TrayConfigTitleLBL, "Tray %d", tray);
+  if (tray <= installedTrays) {
+    lv_obj_add_flag(ui_TraynotinstalledLBL, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_state(ui_DisplaceBTN, LV_STATE_DISABLED);
+  } else {
+    lv_obj_clear_flag(ui_TraynotinstalledLBL, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_state(ui_DisplaceBTN, LV_STATE_DISABLED);
   }
+  lv_scr_load(ui_TrayConfigSCR);
 }
 
-static void TraycfgBTN_event_handler(lv_event_t * e) { // Tray config Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    for (int i = 1; i <= 10; i++) {
-      if (trayCheckedState[i]) selectedtray = i;
-    }
-    if (!enabledpasscode) {
-      loadTraySettings(selectedtray);
-      lv_scr_load(ui_TrayConfigSCR);
-    } else {
-      nextaction = 2;
-      lv_scr_load(ui_LockSCR);
-    }
-  }
+static void tray_fix_event_handler(lv_event_t * e) {
+  const int tray = (int)(intptr_t)lv_event_get_user_data(e);
+  requestControl(CONTROL_ALIGN, trayBit(tray), 0);
 }
 
-
-static void TrayCfgClearBTN_event_handler(lv_event_t * e) { // Tray config Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    clearTrayPreferences(selectedtray);
-    loadTraySettings(selectedtray);
-    updateTrays();
-  }
+static void tray_config_back_event_handler(lv_event_t * e) {
+  if (!controlBusy) lv_scr_load(ui_TraySelectSCR);
 }
 
-static void TrayCfgSaveBTN_event_handler(lv_event_t * e) { // Tray Save Button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    saveTraySettings(selectedtray);
-    updateTrays();
-  }
+static void SettingBackBTN_event_handler(lv_event_t * e) {
+  if (!reserveRestart()) return;
+  saveSettings();
+  lv_obj_add_state(ui_SettingBackBTN, LV_STATE_DISABLED);
+  scheduleRestart(1000);
 }
 
-static void pick_pills_screen_event_handler(lv_event_t * e) {
-  lv_event_code_t code = lv_event_get_code(e);
-  lv_obj_t * obj = lv_event_get_target(e);
-
-  if (code == LV_EVENT_CLICKED) {
-    solidLED = false;
-    showLED(pixels.Color(0, 0, 0));
-    for (int i = 10; i >= 1; i--) {
-      if (traytriggered[i]) {
-        lv_obj_clear_state(ui_DispenseBTN, LV_STATE_DISABLED); // Enable the button
-      }
-    }
-    placethings();
-  }
+static void display_save_event_handler(lv_event_t * e) {
+  clockSS = lv_obj_has_state(ui_ScreensaverCHK1, LV_STATE_CHECKED);
+  preferences.begin("appSettings", false);
+  preferences.putBool("clockSS", clockSS);
+  preferences.end();
+  lv_scr_load(ui_ConfigSCR);
 }
 
+static void WifiClearBTN_event_handler(lv_event_t * e) { clearWifiPreferences(); }
 
-static void LCDLBL_event_handler(lv_event_t * e) { // Turn off lcd button
-  lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED) {
-    digitalWrite(21, LOW);
+static void DisplaceBTN_event_handler(lv_event_t * e) {
+  requestControl(CONTROL_ADVANCE, trayBit(selectedtray), lv_dropdown_get_selected(ui_DisplaceTrayDROP) + 1);
+}
+
+static void TrayCfgClearBTN_event_handler(lv_event_t * e) {
+  if (controlBusy) return;
+  clearTrayPreferences(selectedtray);
+  traytriggered[selectedtray] = false;
+  loadTraySettings(selectedtray);
+  updateTrays();
+}
+
+static void TrayCfgSaveBTN_event_handler(lv_event_t * e) {
+  if (controlBusy) return;
+  saveTraySettings(selectedtray);
+  if (!trayAlertEna[selectedtray]) traytriggered[selectedtray] = false;
+  updateTrays();
+  lv_scr_load(ui_TraySelectSCR);
+}
+
+static void LCDLBL_event_handler(lv_event_t * e) {
+  closeDispenseConfirmation();
+  lv_scr_load(ui_BlankSCR);
+  digitalWrite(21, LOW);
+}
+
+static void wifi_back_event_handler(lv_event_t * e) {
+  lv_scr_load(systemloaded ? ui_ConfigSCR : ui_MainSCR);
+}
+
+void bindFlowEvents() {
+  lv_obj_add_event_cb(ui_HomeConfigBTN, home_config_event_handler, LV_EVENT_CLICKED, NULL);
+  lv_obj_t * menu[] = {ui_ConfigWifiBTN, ui_ConfigTrayBTN, ui_ConfigFixBTN, ui_ConfigSystemBTN, ui_ConfigDisplayBTN, ui_ConfigBackBTN};
+  for (lv_obj_t * button : menu) lv_obj_add_event_cb(button, config_event_handler, LV_EVENT_CLICKED, NULL);
+  lv_obj_t * backs[] = {ui_TraySelectBackBTN, ui_TrayFixBackBTN, ui_SettingBackBTN1, ui_DisplayBackBTN};
+  for (lv_obj_t * button : backs) lv_obj_add_event_cb(button, back_config_event_handler, LV_EVENT_CLICKED, NULL);
+  lv_obj_t * confirms[] = {ui_ConfirmCancelBTN, ui_ConfirmSkipBTN, ui_ConfirmSingleBTN, ui_ConfirmGroupBTN};
+  for (lv_obj_t * button : confirms) lv_obj_add_event_cb(button, confirm_event_handler, LV_EVENT_CLICKED, NULL);
+  for (int i = 1; i <= 10; ++i) {
+    lv_obj_add_event_cb(ui_TraySelectBTN[i], tray_select_event_handler, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    lv_obj_add_event_cb(ui_TrayFixBTN[i], tray_fix_event_handler, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    lv_obj_add_event_cb(ui_TrayIMG[i], tray_check_event_handler, LV_EVENT_CLICKED, (void *)(intptr_t)i);
   }
+  lv_obj_add_event_cb(ui_TrayCfgBackBTN, tray_config_back_event_handler, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(ui_DisplaySaveBTN, display_save_event_handler, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(ui_ScreenOffBTN, LCDLBL_event_handler, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(ui_SkipWifiBTN, wifi_back_event_handler, LV_EVENT_CLICKED, NULL);
 }
